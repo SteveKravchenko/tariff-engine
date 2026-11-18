@@ -161,8 +161,10 @@ export function applyScoringAdjustments(
       }
     } else if (rule.clauseType === "scope") {
       const params = rule.params as ScopeParams;
-      // Check if candidate matches the scoped heading
-      if (candidate.hscode.startsWith(params.heading) || candidate.hscode === params.heading) {
+      // Check if candidate matches the scoped heading. A rule whose heading
+      // cannot be resolved to HS codes is skipped: matching an empty string
+      // would apply it (and its penalty) to every candidate in the chapter.
+      if (scopeHeadingMatches(params.heading, candidate.hscode)) {
         // Check if input matches scope conditions
         if (matchesConditions(params.conditions, input)) {
           adjustments.push({
@@ -185,6 +187,35 @@ export function applyScoringAdjustments(
   }
 
   return adjustments;
+}
+
+/**
+ * Decide whether a scope rule's `heading` field covers a candidate HS code.
+ *
+ * Compiled rules write the heading in several forms: a single code ("8507",
+ * "8507.60"), a comma-separated list ("4205, 4303"), a range ("3901-3916"),
+ * optionally prefixed ("Heading 8471"). Anything that does not resolve to a
+ * 2–6 digit code — an empty string, null, "Section XV", "unknown" — matches
+ * nothing, so the rule is not applied rather than applied to every code.
+ */
+export function scopeHeadingMatches(heading: string | null | undefined, hscode: string): boolean {
+  if (typeof heading !== "string") return false;
+  const code = hscode.replace(/\D/g, "");
+  for (const rawPart of heading.split(",")) {
+    const part = rawPart.trim().replace(/^(chapter|heading|subheading)\s+/i, "");
+    const range = part.match(/^(\d[\d.]*)\s*[-–]\s*(\d[\d.]*)$/);
+    if (range) {
+      const lo = range[1].replace(/\./g, "");
+      const hi = range[2].replace(/\./g, "");
+      if (lo.length !== hi.length || lo.length < 2 || lo.length > 6) continue;
+      const prefix = code.slice(0, lo.length);
+      if (prefix.length === lo.length && prefix >= lo && prefix <= hi) return true;
+      continue;
+    }
+    const single = part.replace(/\./g, "");
+    if (/^\d{2,6}$/.test(single) && code.startsWith(single)) return true;
+  }
+  return false;
 }
 
 /**
