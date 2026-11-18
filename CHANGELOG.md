@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Scope rules whose `heading` is empty, missing, or not an HS code (23 compiled rules, e.g. `""`, `"unknown"`, `"Section XV"`) no longer apply to every candidate in their chapter. Previously `"".startsWith` matched every code, so each candidate took a 0.8 "requires conditions not met" penalty.
+- Scope headings written as lists (`"4205, 4303"`) or ranges (`"3901-3916"`) now match the codes they name.
+- Effect on the 50-case set: 6-digit accuracy 46% → 48%; "lithium-ion battery for mobile phone" → 850760 rises from 37% to 46% confidence.
+
 ## [0.3.1] - 2026-04-04
 
 ### Changed
