@@ -7,8 +7,9 @@ import {
   applyPreScoringRules,
   applyScoringAdjustments,
   applyPartsRules,
+  scopeHeadingMatches,
 } from "../src/rule-applier.js";
-import type { ChapterRuleSet, ScoringAdjustment } from "../src/rule-types.js";
+import type { ChapterRuleSet, ScoringAdjustment, ScoringRule } from "../src/rule-types.js";
 import type { HsNode, ClassifyInput, Candidate } from "../src/types.js";
 
 // Helper: create a minimal HsNode
@@ -144,6 +145,68 @@ describe("applyScoringAdjustments", () => {
     const adjustments = applyScoringAdjustments(rules.scoringRules, input, candidate);
     // No definition or scope match for motorcycle in current rules
     expect(adjustments.every((a) => a.factor === 1.0)).toBe(true);
+  });
+});
+
+describe("scopeHeadingMatches", () => {
+  it("matches a single heading or subheading as a prefix", () => {
+    expect(scopeHeadingMatches("8507", "850760")).toBe(true);
+    expect(scopeHeadingMatches("8507.60", "850760")).toBe(true);
+    expect(scopeHeadingMatches("Heading 8471", "847130")).toBe(true);
+    expect(scopeHeadingMatches("8507", "850410")).toBe(false);
+  });
+
+  it("matches any code in a comma-separated list", () => {
+    expect(scopeHeadingMatches("4205, 4303", "430310")).toBe(true);
+    expect(scopeHeadingMatches("300360,300460", "300460")).toBe(true);
+    expect(scopeHeadingMatches("4205, 4303", "420100")).toBe(false);
+  });
+
+  it("matches codes inside an inclusive range", () => {
+    expect(scopeHeadingMatches("3901-3916", "391000")).toBe(true);
+    expect(scopeHeadingMatches("3901-3916", "391690")).toBe(true);
+    expect(scopeHeadingMatches("3901-3916", "391700")).toBe(false);
+  });
+
+  it("matches nothing when the heading is not an HS code", () => {
+    for (const heading of ["", "   ", "unknown", "not specified", "Section XV", null, undefined]) {
+      expect(scopeHeadingMatches(heading, "850760")).toBe(false);
+    }
+  });
+});
+
+describe("applyScoringAdjustments with unresolvable scope headings", () => {
+  it("does not penalise every candidate when a scope rule has an empty heading", () => {
+    const rules: ScoringRule[] = [
+      {
+        clauseType: "scope",
+        params: {
+          heading: "",
+          covers: "time resolution 50 nanoseconds or less",
+          conditions: [{ type: "contains", field: "description", value: "time resolution" }],
+        },
+      },
+    ];
+    const input: ClassifyInput = { description: "lithium-ion battery for mobile phone" };
+    const adjustments = applyScoringAdjustments(rules, input, makeCandidate("850760", "Lithium-ion accumulators"));
+    expect(adjustments).toEqual([{ factor: 1.0, reason: "No rule adjustments" }]);
+  });
+
+  it("still applies a scope rule to the heading it names", () => {
+    const rules: ScoringRule[] = [
+      {
+        clauseType: "scope",
+        params: {
+          heading: "7304",
+          covers: "drill pipe",
+          conditions: [{ type: "contains", field: "description", value: "drill pipe" }],
+        },
+      },
+    ];
+    const hit = applyScoringAdjustments(rules, { description: "steel drill pipe" }, makeCandidate("730422", "Drill pipe"));
+    expect(hit[0].factor).toBeGreaterThan(1.0);
+    const miss = applyScoringAdjustments(rules, { description: "steel tube" }, makeCandidate("730422", "Drill pipe"));
+    expect(miss[0].factor).toBeLessThan(1.0);
   });
 });
 
